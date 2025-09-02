@@ -64,6 +64,15 @@ async function main() {
   const config = getConfig();
   logger.debug('Loaded config: %o', config);
 
+  process.on('SIGINT', () => {
+    logger.info('Received SIGINT, shutting down...');
+    process.exit(0);
+  });
+  process.on('SIGTERM', () => {
+    logger.info('Received SIGTERM, shutting down...');
+    process.exit(0);
+  });
+
   setInterval(() => cycle(config), config.refreshIntervalSeconds * 1000);
 
   logger.info('Application started!');
