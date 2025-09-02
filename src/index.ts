@@ -3,6 +3,8 @@ import { loadConfig } from './config.js';
 import { getDaemonSet, getDeployment, getStatefulSet } from './k8s.js';
 import logger from './logger.js';
 import { NanoCDConfig } from './types.js';
+import { getDockerHubTags } from './dockerhub.js';
+import semver from 'semver';
 
 function getConfig() {
   try {
@@ -13,13 +15,56 @@ function getConfig() {
   }
 }
 
-async function processContainers(containers: V1Container[]) {
+async function processImage(image: string, imagePrefix: string) {
+  const currentTag = image.split(':')[1];
+  if (currentTag == null || !currentTag.startsWith(imagePrefix)) {
+    logger.warn('Image %s does not have a valid tag', image);
+    return;
+  }
+  const currentVersion = currentTag.substring(imagePrefix.length);
+  if (!semver.valid(currentVersion)) {
+    logger.warn('Current version %s is not a valid semver', currentVersion);
+    return;
+  }
+
+  let newVersion = currentVersion;
+
+  let tags: string[] = [];
+  try {
+    tags = await getDockerHubTags(image);
+  } catch (err) {
+    logger.error({ err }, 'Failed to get Docker Hub tags');
+    return;
+  }
+  for (const tag of tags) {
+    if (!tag.startsWith(imagePrefix)) {
+      continue;
+    }
+    const tagVersion = tag.substring(imagePrefix.length);
+    if (!semver.valid(tagVersion)) {
+      continue;
+    }
+    if (semver.gt(tagVersion, newVersion)) {
+      newVersion = tagVersion;
+    }
+  }
+
+  if (newVersion === currentVersion) {
+    logger.debug('Image %s is already at the latest version %s', image, currentVersion);
+    return;
+  }
+
+  logger.info('Image %s has been updated to version %s', image, newVersion);
+}
+
+async function processContainers(containers: V1Container[], imagePrefix: string) {
   for (const container of containers) {
     const image = container.image;
     if (image == null) {
       continue;
     }
     logger.debug('Processing image %s for container %s', image, container.name);
+    await processImage(image, imagePrefix);
   }
 }
 
@@ -35,7 +80,10 @@ async function cycle(config: NanoCDConfig) {
         logger.warn('Deployment not found: %s', deployment);
         continue;
       }
-      await processContainers(deploymentDetails.spec?.template?.spec?.containers ?? []);
+      await processContainers(
+        deploymentDetails.spec?.template?.spec?.containers ?? [],
+        nsConfig.imagePrefix,
+      );
     }
     for (const statefulSet of nsConfig.statefulSet ?? []) {
       logger.debug('Processing statefulSet: %s', statefulSet);
@@ -44,7 +92,10 @@ async function cycle(config: NanoCDConfig) {
         logger.warn('StatefulSet not found: %s', statefulSet);
         continue;
       }
-      await processContainers(statefulSetDetails.spec?.template?.spec?.containers ?? []);
+      await processContainers(
+        statefulSetDetails.spec?.template?.spec?.containers ?? [],
+        nsConfig.imagePrefix,
+      );
     }
     for (const daemonSet of nsConfig.daemonSet ?? []) {
       logger.debug('Processing daemonSet: %s', daemonSet);
@@ -53,7 +104,10 @@ async function cycle(config: NanoCDConfig) {
         logger.warn('DaemonSet not found: %s', daemonSet);
         continue;
       }
-      await processContainers(daemonSetDetails.spec?.template?.spec?.containers ?? []);
+      await processContainers(
+        daemonSetDetails.spec?.template?.spec?.containers ?? [],
+        nsConfig.imagePrefix,
+      );
     }
   }
 
