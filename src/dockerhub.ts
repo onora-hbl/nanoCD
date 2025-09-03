@@ -1,6 +1,7 @@
 import fetch from 'node-fetch';
 
 export async function getDockerHubTags(image: string): Promise<string[]> {
+  image = image.trim().split(':')[0];
   const repo = image.includes('/') ? image : `library/${image}`;
 
   const tokenResp = await fetch(
