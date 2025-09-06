@@ -1,7 +1,7 @@
 import fs from 'fs';
 import yaml from 'yaml';
 import { z } from 'zod';
-import type { NanoCDConfig } from './types';
+import type { NanoCDConfig } from './types.js';
 
 export const NamespaceConfigSchema = z.strictObject({
   deployment: z.array(z.string()).nonempty().optional(),
