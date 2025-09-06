@@ -5,7 +5,7 @@ import {
   V1StatefulSet,
   V1DaemonSet,
 } from '@kubernetes/client-node';
-import logger from './logger';
+import logger from './logger.js';
 
 const kc = new KubeConfig();
 kc.loadFromDefault();
