@@ -1,8 +1,13 @@
+export type ImageConfig = {
+  prefix: string;
+  versionMatch: string;
+};
+
 export type NamespaceConfig = {
   deployment?: string[];
   statefulSet?: string[];
   daemonSet?: string[];
-  imagePrefix: string;
+  images: Record<string, ImageConfig>;
 };
 
 export type NanoCDConfig = {

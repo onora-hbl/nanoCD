@@ -2,7 +2,7 @@ import { V1Container } from '@kubernetes/client-node';
 import { loadConfig } from './config.js';
 import { getDaemonSet, getDeployment, getStatefulSet, patchWorkload } from './k8s.js';
 import logger from './logger.js';
-import { NanoCDConfig } from './types.js';
+import { ImageConfig, NanoCDConfig } from './types.js';
 import { getDockerHubTags } from './dockerhub.js';
 import semver from 'semver';
 
@@ -15,13 +15,13 @@ function getConfig() {
   }
 }
 
-async function getNewImage(image: string, imagePrefix: string) {
+async function getNewImage(image: string, imageConfig: ImageConfig) {
   const [currentImage, currentTag] = image.split(':');
-  if (currentTag == null || !currentTag.startsWith(imagePrefix)) {
-    logger.warn('Image %s does not have a valid tag', image);
+  if (currentTag == null || !currentTag.startsWith(imageConfig.prefix)) {
+    logger.warn('Image %s does not have the correct prefix', image);
     return null;
   }
-  const currentVersion = currentTag.substring(imagePrefix.length);
+  const currentVersion = currentTag.substring(imageConfig.prefix.length);
   if (!semver.valid(currentVersion)) {
     logger.warn('Current version %s is not a valid semver', currentVersion);
     return null;
@@ -36,37 +36,54 @@ async function getNewImage(image: string, imagePrefix: string) {
     logger.error({ err }, 'Failed to get Docker Hub tags');
     return null;
   }
+
+  let isNotSatisfies = false;
   for (const tag of tags) {
-    if (!tag.startsWith(imagePrefix)) {
+    if (!tag.startsWith(imageConfig.prefix)) {
       continue;
     }
-    const tagVersion = tag.substring(imagePrefix.length);
+    const tagVersion = tag.substring(imageConfig.prefix.length);
     if (!semver.valid(tagVersion)) {
       continue;
     }
     if (semver.gt(tagVersion, newVersion)) {
+      logger.debug('Found new version %s test range %s', tagVersion, imageConfig.versionMatch);
+      if (!semver.satisfies(tagVersion, imageConfig.versionMatch)) {
+        isNotSatisfies = true;
+        continue;
+      }
       newVersion = tagVersion;
     }
   }
 
   if (newVersion === currentVersion) {
     logger.debug('Image %s is already at the latest version %s', image, currentVersion);
+    if (isNotSatisfies) {
+      logger.info(
+        'Image %s is not at the last version but new version does not satisfy the image range',
+        image,
+      );
+    }
     return null;
   }
 
   logger.info('Image %s has an update to version %s', image, newVersion);
-  return `${currentImage}:${imagePrefix}${newVersion}`;
+  return `${currentImage}:${imageConfig.prefix}${newVersion}`;
 }
 
-async function getContainersPatch(containers: V1Container[], imagePrefix: string) {
+async function getContainersPatch(containers: V1Container[], images: Record<string, ImageConfig>) {
   const patch: Record<string, string> = {};
   for (const container of containers) {
     const image = container.image;
     if (image == null) {
       continue;
     }
+    const imageName = image.split(':')[0];
+    if (!(imageName in images)) {
+      continue;
+    }
     logger.debug('Processing image %s for container %s', image, container.name);
-    const newImage = await getNewImage(image, imagePrefix);
+    const newImage = await getNewImage(image, images[imageName]);
     if (newImage != null) {
       patch[container.name] = newImage;
     }
@@ -88,7 +105,7 @@ async function cycle(config: NanoCDConfig) {
       }
       const patch = await getContainersPatch(
         deploymentDetails.spec?.template?.spec?.containers ?? [],
-        nsConfig.imagePrefix,
+        nsConfig.images,
       );
       if (Object.keys(patch).length > 0) {
         await patchWorkload(namespace, 'Deployment', deploymentDetails, deployment, patch);
@@ -103,7 +120,7 @@ async function cycle(config: NanoCDConfig) {
       }
       const patch = await getContainersPatch(
         statefulSetDetails.spec?.template?.spec?.containers ?? [],
-        nsConfig.imagePrefix,
+        nsConfig.images,
       );
       if (Object.keys(patch).length > 0) {
         await patchWorkload(namespace, 'StatefulSet', statefulSetDetails, statefulSet, patch);
@@ -118,7 +135,7 @@ async function cycle(config: NanoCDConfig) {
       }
       const patch = await getContainersPatch(
         daemonSetDetails.spec?.template?.spec?.containers ?? [],
-        nsConfig.imagePrefix,
+        nsConfig.images,
       );
       if (Object.keys(patch).length > 0) {
         await patchWorkload(namespace, 'DaemonSet', daemonSetDetails, daemonSet, patch);

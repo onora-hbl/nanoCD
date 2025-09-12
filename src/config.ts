@@ -3,11 +3,16 @@ import yaml from 'yaml';
 import { z } from 'zod';
 import type { NanoCDConfig } from './types.js';
 
+export const ImageConfigSchema = z.strictObject({
+  prefix: z.string().nonempty(),
+  versionMatch: z.string().nonempty(),
+});
+
 export const NamespaceConfigSchema = z.strictObject({
   deployment: z.array(z.string()).nonempty().optional(),
   statefulSet: z.array(z.string()).nonempty().optional(),
   daemonSet: z.array(z.string()).nonempty().optional(),
-  imagePrefix: z.string().nonempty().optional(),
+  images: z.record(z.string(), ImageConfigSchema),
 });
 
 const NanoCDConfigSchema = z.strictObject({
@@ -30,7 +35,7 @@ export function loadConfig(path: string): NanoCDConfig {
         name,
         {
           ...config,
-          imagePrefix: config.imagePrefix ?? 'v',
+          images: config.images ?? {},
         },
       ]),
     ),
