@@ -5,6 +5,7 @@ import logger from './logger.js';
 import { ImageConfig, NanoCDConfig } from './types.js';
 import { getDockerHubTags } from './dockerhub.js';
 import semver from 'semver';
+import fetch from 'node-fetch';
 
 function getConfig() {
   try {
@@ -91,6 +92,31 @@ async function getContainersPatch(containers: V1Container[], images: Record<stri
   return patch;
 }
 
+async function sendWebhook(
+  namespace: string,
+  workloadType: string,
+  workloadName: string,
+  patch: Record<string, string>,
+  discordWebhookUrl: string,
+) {
+  const message = `${workloadType} \`${workloadName}\` from namespace \`${namespace}\` has been upgraded as follows:\n${Object.entries(
+    patch,
+  )
+    .map(([container, image]) => `- \`${container}\` now points to \`${image}\``)
+    .join('\n')}`;
+  try {
+    await fetch(discordWebhookUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ content: message }),
+    });
+  } catch (err) {
+    logger.error({ err }, 'Failed to send Discord webhook');
+  }
+}
+
 async function cycle(config: NanoCDConfig) {
   logger.debug('Cycling...');
 
@@ -109,6 +135,9 @@ async function cycle(config: NanoCDConfig) {
       );
       if (Object.keys(patch).length > 0) {
         await patchWorkload(namespace, 'Deployment', deploymentDetails, deployment, patch);
+        if (nsConfig.discordWebhook != null) {
+          await sendWebhook(namespace, 'Deployment', deployment, patch, nsConfig.discordWebhook);
+        }
       }
     }
     for (const statefulSet of nsConfig.statefulSet ?? []) {
@@ -124,6 +153,9 @@ async function cycle(config: NanoCDConfig) {
       );
       if (Object.keys(patch).length > 0) {
         await patchWorkload(namespace, 'StatefulSet', statefulSetDetails, statefulSet, patch);
+        if (nsConfig.discordWebhook != null) {
+          await sendWebhook(namespace, 'StatefulSet', statefulSet, patch, nsConfig.discordWebhook);
+        }
       }
     }
     for (const daemonSet of nsConfig.daemonSet ?? []) {
@@ -139,6 +171,9 @@ async function cycle(config: NanoCDConfig) {
       );
       if (Object.keys(patch).length > 0) {
         await patchWorkload(namespace, 'DaemonSet', daemonSetDetails, daemonSet, patch);
+        if (nsConfig.discordWebhook != null) {
+          await sendWebhook(namespace, 'DaemonSet', daemonSet, patch, nsConfig.discordWebhook);
+        }
       }
     }
   }

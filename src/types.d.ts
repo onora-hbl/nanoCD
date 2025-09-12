@@ -8,6 +8,7 @@ export type NamespaceConfig = {
   statefulSet?: string[];
   daemonSet?: string[];
   images: Record<string, ImageConfig>;
+  discordWebhook?: string;
 };
 
 export type NanoCDConfig = {

@@ -13,6 +13,7 @@ export const NamespaceConfigSchema = z.strictObject({
   statefulSet: z.array(z.string()).nonempty().optional(),
   daemonSet: z.array(z.string()).nonempty().optional(),
   images: z.record(z.string(), ImageConfigSchema),
+  discordWebhook: z.string().optional(),
 });
 
 const NanoCDConfigSchema = z.strictObject({
